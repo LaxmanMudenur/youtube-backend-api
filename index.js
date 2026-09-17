@@ -57,7 +57,7 @@ const channelSchema = new mongoose.Schema({
     },
     user: {
         type: mongoose.Schema.Types.ObjectId,
-        ref: 'user'
+        ref: 'User'
     },
     channelBio: {
         type: String
@@ -135,9 +135,10 @@ const userSchemaValidation = Joi.object({
 })
 
 const loginSchemaValidation = Joi.object({
-    name: Joi.string().required(),
     email: Joi.string()
-        .email({ tlds: { allow: false } }).messages({
+        .email({ tlds: { allow: false } })
+        .required()
+        .messages({
             'string.empty': 'Email address is required.',
             'string.email': 'Please enter a valid email address.',
             'any.required': 'Email address is required.'
@@ -254,7 +255,7 @@ app.post("/register", async (req, res) => {
         const newUser = new User({ name, email, password: hashedPassword });
         await newUser.save();
         const token = jwt.sign({ userId: newUser._id, email: newUser.email }, process.env.JWT_SECRET, { expiresIn: "24h" }); // Token expires in 24 hours
-        res.status(201).json({ user: newUser, token, message: "User registered successfully" });
+        res.status(201).json({ user: sanitizeUser(newUser), token, message: "User registered successfully" });
     } catch (error) {
         console.error("Error registering user:", error);
         res.status(500).json({ message: "Internal server error" });
@@ -294,23 +295,44 @@ app.get("/register/:id", async (req, res) => {
 
 app.put("/register/:id", authMiddleware, async (req, res) => {
     try {
-        const { id } = req.params
+        const { id } = req.params;
 
         if (!mongoose.Types.ObjectId.isValid(id)) {
-            return res.status(400).json({ message: "Invalid registration Id" })
+            return res.status(400).json({ message: "Invalid registration id" });
         }
-        const updatedUser = await User.findByIdAndUpdate(
-            req.params.id,
-            req.body
-        )
-        res.status(200).json(updatedUser)
 
+        const user = await User.findById(id);
+        if (!user) {
+            return res.status(404).json({ message: "Registration not found" });
+        }
+
+        if (req.user.role !== "admin" && req.user._id.toString() !== id) {
+            return res.status(403).json({ message: "You are not allowed to update this registration" });
+        }
+
+        const { name, email, password } = req.body;
+
+        if (email && email !== user.email) {
+            const existingUser = await User.findOne({ email });
+            if (existingUser) {
+                return res.status(400).json({ message: "User already exists" });
+            }
+        }
+
+        if (name) user.name = name;
+        if (email) user.email = email;
+        if (password) {
+            user.password = await bcrypt.hash(password, 10);
+        }
+
+        await user.save();
+
+        res.status(200).json({ user: sanitizeUser(user), message: "Registration updated successfully" });
     } catch (error) {
-        console.error("Error fetching registration:", error);
+        console.error("Error updating registration:", error);
         res.status(500).json({ message: "Internal server error" });
-
     }
-})
+});
 app.delete("/register/:id", authMiddleware, async (req, res) => {
     try {
         const { id } = req.params;
@@ -359,7 +381,7 @@ app.post("/login", async (req, res) => {
             return res.status(400).json({ message: "Invalid email or password" });
         }
         const token = jwt.sign({ userId: user._id, email: user.email }, process.env.JWT_SECRET, { expiresIn: "24h" }); // Token expires in 24 hours
-        res.status(200).json({ user, token, message: "Login successful" });
+        res.status(200).json({ user: sanitizeUser(user), token, message: "Login successful" });
     } catch (error) {
         console.error("Error logging in:", error);
         res.status(500).json({ message: "Internal server error" });
@@ -400,23 +422,44 @@ app.get("/login/:id", authMiddleware, async (req, res) => {
 
 app.put("/login/:id", authMiddleware, async (req, res) => {
     try {
-        const { id } = req.params
+        const { id } = req.params;
 
         if (!mongoose.Types.ObjectId.isValid(id)) {
-            return res.status(400).json({ message: "Invalid login Id" })
+            return res.status(400).json({ message: "Invalid login id" });
         }
-        const updatedUser = await User.findByIdAndUpdate(
-            req.params.id,
-            req.body
-        )
-        res.status(200).json(updatedUser)
 
+        const user = await User.findById(id);
+        if (!user) {
+            return res.status(404).json({ message: "Login user not found" });
+        }
+
+        if (req.user.role !== "admin" && req.user._id.toString() !== id) {
+            return res.status(403).json({ message: "You are not allowed to update this login" });
+        }
+
+        const { name, email, password } = req.body;
+
+        if (email && email !== user.email) {
+            const existingUser = await User.findOne({ email });
+            if (existingUser) {
+                return res.status(400).json({ message: "User already exists" });
+            }
+        }
+
+        if (name) user.name = name;
+        if (email) user.email = email;
+        if (password) {
+            user.password = await bcrypt.hash(password, 10);
+        }
+
+        await user.save();
+
+        res.status(200).json({ user: sanitizeUser(user), message: "Login updated successfully" });
     } catch (error) {
-        console.error("Error fetching login:", error);
+        console.error("Error updating login:", error);
         res.status(500).json({ message: "Internal server error" });
-
     }
-})
+});
 app.delete("/login/:id", authMiddleware, async (req, res) => {
     try {
         const { id } = req.params;
@@ -458,8 +501,8 @@ app.post("/profile", authMiddleware, async (req, res) => {
             return res.status(400).json({ message: "Profile already existed for this user" })
         }
 
-        const create = await Profile.create({ ...value, user: req.user._id })
-        return res.status(201).json({ Profile, message: "Profile created" })
+        const profile = await Profile.create({ ...value, user: req.user._id })
+        return res.status(201).json({ profile, message: "Profile created" })
     } catch (error) {
         console.error("Error creating profile:", error)
         res.status(500).json({ message: "Internal server error" })
@@ -476,7 +519,7 @@ app.get("/profile/me", authMiddleware, async (req, res) => {
         if (!profile) {
             return res.status(404).json({ message: "Profile not found" })
         }
-        res.json({ Profile })
+        res.json({ profile })
     } catch (error) {
         console.error("Error fetching profile:", error)
         res.status(500).json({ message: "Internal server error" })
@@ -504,9 +547,9 @@ app.put("/profile/me", authMiddleware, async (req, res) => {
 });
 app.delete("/profile/me", authMiddleware, async (req, res) => {
     try {
-        const profile = await Profile.findByIdAndDelete({ user: req.user._id })
+        const profile = await Profile.findOneAndDelete({ user: req.user._id })
         if (!profile) {
-            return res.status(404).json({ messahe: "Profile not found" })
+            return res.status(404).json({ message: "Profile not found" })
         }
         res.json({ message: "Profile deleted" })
 
@@ -556,9 +599,9 @@ app.post("/channels", authMiddleware, async (req, res) => {
 app.get("/channels", authMiddleware, async (req, res) => {
     try {
         const channel = await Channel.find().populate("user", "name email role")
-        res.json({ channels })
+        res.json({ channel })
     } catch (error) {
-        console.error("Error listing channels:", err)
+        console.error("Error listing channels:", error)
         res.status(500).json({ message: "Internal server error" })
     }
 })
@@ -584,7 +627,7 @@ app.put("/channels/:id", authMiddleware, async (req, res) => {
         const { error, value } = validate(channelValidation, req.body)
         if (error) return res.status(400).json({ message: error })
 
-        const channel = await channel.findById(req.params.id)
+        const channel = await Channel.findById(req.params.id)
         if (!channel) {
             return res.status(404).json({ message: "Channel not found" })
         }
@@ -594,9 +637,9 @@ app.put("/channels/:id", authMiddleware, async (req, res) => {
         Object.assign(channel, value);
         await channel.save();
         res.json({ channel, message: "Channel updated" });
-    }catch(error){
-        console.error("Error updating channel:",error)
-        req.status(500).json({message: "Internal server error"})
+    } catch (error) {
+        console.error("Error updating channel:", error)
+        res.status(500).json({ message: "Internal server error" })
     }
 })
 
@@ -611,8 +654,8 @@ app.delete("/channels/:id", authMiddleware, async (req, res) => {
     }
     await channel.deleteOne();
     res.json({ message: "Channel deleted" });
-  } catch (err) {
-    console.error("Error deleting channel:", err);
+  } catch (error) {
+    console.error("Error deleting channel:", error);
     res.status(500).json({ message: "Internal server error" });
   }
 });
@@ -630,8 +673,8 @@ app.post("/articles", authMiddleware, async (req, res) => {
 
     const article = await Article.create({ ...value, user: req.user._id });
     res.status(201).json({ article, message: "Article created" });
-  } catch (err) {
-    console.error("Error creating article:", err);
+  } catch (error) {
+    console.error("Error creating article:", error);
     res.status(500).json({ message: "Internal server error" });
   }
 });
@@ -646,8 +689,8 @@ app.get("/articles", async (req, res) => {
       .populate("user", "name email")
       .populate("channel", "name description");
     res.json({ articles });
-  } catch (err) {
-    console.error("Error listing articles:", err);
+  } catch (error) {
+    console.error("Error listing articles:", error);
     res.status(500).json({ message: "Internal server error" });
   }
 });
@@ -661,8 +704,8 @@ app.get("/articles/:id", async (req, res) => {
       return res.status(404).json({ message: "Article not found" });
     }
     res.json({ article });
-  } catch (err) {
-    console.error("Error fetching article:", err);
+  } catch (error) {
+    console.error("Error fetching article:", error);
     res.status(500).json({ message: "Internal server error" });
   }
 });
@@ -688,8 +731,8 @@ app.put("/articles/:id", authMiddleware, async (req, res) => {
     Object.assign(article, value);
     await article.save();
     res.json({ article, message: "Article updated" });
-  } catch (err) {
-    console.error("Error updating article:", err);
+  } catch (error) {
+    console.error("Error updating article:", error);
     res.status(500).json({ message: "Internal server error" });
   }
 });
@@ -705,8 +748,8 @@ app.delete("/articles/:id", authMiddleware, async (req, res) => {
     }
     await article.deleteOne();
     res.json({ message: "Article deleted" });
-  } catch (err) {
-    console.error("Error deleting article:", err);
+  } catch (error) {
+    console.error("Error deleting article:", error);
     res.status(500).json({ message: "Internal server error" });
   }
 });
@@ -719,8 +762,8 @@ app.post("/categories", authMiddleware, adminMiddleware, async (req, res) => {
 
     const category = await Category.create(value);
     res.status(201).json({ category, message: "Category created" });
-  } catch (err) {
-    console.error("Error creating category:", err);
+  } catch (error) {
+    console.error("Error creating category:", error);
     res.status(500).json({ message: "Internal server error" });
   }
 });
@@ -729,8 +772,8 @@ app.get("/categories", async (req, res) => {
   try {
     const categories = await Category.find();
     res.json({ categories });
-  } catch (err) {
-    console.error("Error listing categories:", err);
+  } catch (error) {
+    console.error("Error listing categories:", error);
     res.status(500).json({ message: "Internal server error" });
   }
 });
@@ -742,8 +785,8 @@ app.get("/categories/:id", async (req, res) => {
       return res.status(404).json({ message: "Category not found" });
     }
     res.json({ category });
-  } catch (err) {
-    console.error("Error fetching category:", err);
+  } catch (error) {
+    console.error("Error fetching category:", error);
     res.status(500).json({ message: "Internal server error" });
   }
 });
@@ -761,8 +804,8 @@ app.put("/categories/:id", authMiddleware, adminMiddleware, async (req, res) => 
       return res.status(404).json({ message: "Category not found" });
     }
     res.json({ category, message: "Category updated" });
-  } catch (err) {
-    console.error("Error updating category:", err);
+  } catch (error) {
+    console.error("Error updating category:", error);
     res.status(500).json({ message: "Internal server error" });
   }
 });
@@ -774,8 +817,8 @@ app.delete("/categories/:id", authMiddleware, adminMiddleware, async (req, res) 
       return res.status(404).json({ message: "Category not found" });
     }
     res.json({ message: "Category deleted" });
-  } catch (err) {
-    console.error("Error deleting category:", err);
+  } catch (error) {
+    console.error("Error deleting category:", error);
     res.status(500).json({ message: "Internal server error" });
   }
 });
@@ -813,8 +856,8 @@ app.post("/category-channels", authMiddleware, async (req, res) => {
       user: req.user._id,
     });
     res.status(201).json({ categoryChannel: link, message: "Category linked to channel" });
-  } catch (err) {
-    console.error("Error linking category to channel:", err);
+  } catch (error) {
+    console.error("Error linking category to channel:", error);
     res.status(500).json({ message: "Internal server error" });
   }
 });
@@ -830,8 +873,8 @@ app.get("/category-channels", async (req, res) => {
       .populate("channel")
       .populate("user", "name email");
     res.json({ categoryChannels });
-  } catch (err) {
-    console.error("Error listing category-channel links:", err);
+  } catch (error) {
+    console.error("Error listing category-channel links:", error);
     res.status(500).json({ message: "Internal server error" });
   }
 });
@@ -846,8 +889,8 @@ app.get("/category-channels/:id", async (req, res) => {
       return res.status(404).json({ message: "Link not found" });
     }
     res.json({ categoryChannel: link });
-  } catch (err) {
-    console.error("Error fetching category-channel link:", err);
+  } catch (error) {
+    console.error("Error fetching category-channel link:", error);
     res.status(500).json({ message: "Internal server error" });
   }
 });
@@ -863,8 +906,8 @@ app.delete("/category-channels/:id", authMiddleware, async (req, res) => {
     }
     await link.deleteOne();
     res.json({ message: "Link deleted" });
-  } catch (err) {
-    console.error("Error deleting category-channel link:", err);
+  } catch (error) {
+    console.error("Error deleting category-channel link:", error);
     res.status(500).json({ message: "Internal server error" });
   }
 });
