@@ -100,12 +100,15 @@ const categorySchema = new mongoose.Schema({
 const categoryChannelSchema = new mongoose.Schema({
     category: {
         type: mongoose.Schema.Types.ObjectId,
+    ref: 'Category'
     },
     channel: {
         type: mongoose.Schema.Types.ObjectId,
+    ref: 'Channel'
     },
     user: {
         type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
     }
 });
 
@@ -570,9 +573,12 @@ app.get("/profile", authMiddleware, async (req, res) => {
 
 app.get("/profile/:id", authMiddleware, async (req, res) => {
     try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ message: "Invalid profile id" })
+    }
         const profile = await Profile.findById(req.params.id).populate("user", "name email role")
         if (!profile) {
-            return res.status(400).json({ message: "Profile not found" })
+      return res.status(404).json({ message: "Profile not found" })
         }
         res.json({ profile })
     } catch (error) {
@@ -591,7 +597,7 @@ app.post("/channels", authMiddleware, async (req, res) => {
         const channel = await Channel.create({ ...value, user: req.user._id })
         res.status(201).json({ channel, message: "Channel created" })
     } catch (error) {
-        console.error("Error creating channel:", err)
+        console.error("Error creating channel:", error)
         res.status(500).json({ message: "Internal server error" })
     }
 })
@@ -608,6 +614,9 @@ app.get("/channels", authMiddleware, async (req, res) => {
 
 app.get("/channels/:id", authMiddleware, async (req, res) => {
     try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ message: "Invalid channel id" })
+    }
         const channel = await Channel.findById(req.params.id).populate(
             "user",
             "name email role"
@@ -697,6 +706,9 @@ app.get("/articles", async (req, res) => {
 
 app.get("/articles/:id", async (req, res) => {
   try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ message: "Invalid article id" });
+    }
     const article = await Article.findById(req.params.id)
       .populate("user", "name email")
       .populate("channel", "name description");
@@ -780,6 +792,9 @@ app.get("/categories", async (req, res) => {
 
 app.get("/categories/:id", async (req, res) => {
   try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ message: "Invalid category id" });
+    }
     const category = await Category.findById(req.params.id);
     if (!category) {
       return res.status(404).json({ message: "Category not found" });
@@ -881,6 +896,9 @@ app.get("/category-channels", async (req, res) => {
 
 app.get("/category-channels/:id", async (req, res) => {
   try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ message: "Invalid link id" });
+    }
     const link = await CategoryChannel.findById(req.params.id)
       .populate("category")
       .populate("channel")
