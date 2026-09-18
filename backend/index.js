@@ -33,7 +33,7 @@ const profileSchema = new mongoose.Schema({
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User'
     },
-    adress: {
+  address: {
         type: String
     },
     phone: {
@@ -755,7 +755,7 @@ app.delete("/articles/:id", authMiddleware, async (req, res) => {
 });
 
 // Categories
-app.post("/categories", authMiddleware, adminMiddleware, async (req, res) => {
+app.post("/categories", authMiddleware, async (req, res) => {
   try {
     const { error, value } = validate(categoryValidation, req.body);
     if (error) return res.status(400).json({ message: error });
@@ -791,7 +791,7 @@ app.get("/categories/:id", async (req, res) => {
   }
 });
 
-app.put("/categories/:id", authMiddleware, adminMiddleware, async (req, res) => {
+app.put("/categories/:id", authMiddleware, async (req, res) => {
   try {
     const { error, value } = validate(categoryValidation, req.body);
     if (error) return res.status(400).json({ message: error });
@@ -810,7 +810,7 @@ app.put("/categories/:id", authMiddleware, adminMiddleware, async (req, res) => 
   }
 });
 
-app.delete("/categories/:id", authMiddleware, adminMiddleware, async (req, res) => {
+app.delete("/categories/:id", authMiddleware, async (req, res) => {
   try {
     const category = await Category.findByIdAndDelete(req.params.id);
     if (!category) {
